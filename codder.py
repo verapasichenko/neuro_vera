@@ -6,17 +6,20 @@ import cv2
 import torchvision.transforms.functional as TF
 
 
-def input_image(dir_way, shifring: bool = False):
+def input_image(dir_way, shifring: bool = False, idx: int = -1):
     """
     Загрузка и первичная обработка картинки
     :param dir_way: путь к файлу
     :param shifring: флаг формата подготовки в зависимости от задачи
+    :param idx: иттерационный параметр для сохранения промежуточных результатов
     :return: andarray картинка подходящая под параметры встраивания или извлечения, её размеры
     """
     image = Image.open(dir_way).convert('RGB')
     (H, W) = image.size
     if shifring:
         image = image.resize((64 * (H // 64), 64 * (W // 64)))
+        if idx + 1:
+            image.save(f'prepaired{idx + 1}.png')
         return np.asarray(image), image.size
     else:
         image = image.crop((0, 0, int(H / 2), int(W / 2)))
@@ -158,16 +161,17 @@ def template_x32(pattern, beta, Img):
     return Img
 
 
-def shifr(im_dir, saving_dir, betta: int = 10, mes_num: bool = True):
+def shifr(im_dir, saving_dir, betta: int = 10, mes_num: bool = True, idx: int = -1):
     """
     функция внедрения сообщения в изображение
     :param im_dir: путь к изображению-обложке
     :param saving_dir: путь к сохраняемому изображению
     :param betta: коэффицент встраивания
     :param mes_num: флаг формата сообщения
+    :param idx: иттерационный параметр для сохранения промежуточных результатов
     :return: Файл в необходимой дирректори.
     """
-    (img, im_size) = input_image(im_dir, shifring=True)
+    (img, im_size) = input_image(im_dir, shifring=True, idx=idx)
     (H, W) = im_size
     if mes_num:
         mes = message_create(H, W)
@@ -177,6 +181,10 @@ def shifr(im_dir, saving_dir, betta: int = 10, mes_num: bool = True):
             mes = string_to_bytes(str(input('Input message\n')))
         else:
             mes = string_to_bytes(str(input('Input message\n')), alph)
+    if idx + 1:
+        zer = np.zeros(int(H * W / 4096), 'int8')
+        zer[:mes.shape[0]] = mes
+        np.save(f'mes{idx + 1}', zer)
     print('Message:', mes)
     P_mf = mes_to_P_mf(mes, int(H / 2), int(W / 2))
     image_tempated = template(P_mf, betta, img)
@@ -185,17 +193,18 @@ def shifr(im_dir, saving_dir, betta: int = 10, mes_num: bool = True):
     return None
 
 
-def deshifr(im_dir):
+def deshifr(im_dir, idx: int = -1):
     """
     функция извлечения ЦВЗ из изображения
     :param im_dir: путь и название изображения
+    :param idx: иттерационный параметр для сохранения промежуточных результатов
     :return: ЦВЗ
     """
     model = net.ClassificatorNet(3, 64, 2)
-    model.load_state_dict(torch.load('./Model.pth'))
+    model.load_state_dict(torch.load('Materials/Model.pth'))
     model.train(False)
 
-    (img, im_size) = input_image(im_dir)
+    (img, im_size) = input_image(im_dir, idx=idx)
     (H, W) = im_size
     message = ''
     for y in range(int(W / 32)):
@@ -211,21 +220,10 @@ def deshifr(im_dir):
                 message += '1'
             else:
                 message += '0'
-    mes = message.rstrip('0')
-    if mes[0] == '0':
-        mes = mes[1:]
-        while '0000000000000000' in mes:
-            mes = mes[:-1] + '0'
-            mes = mes.rstrip('0')
 
-    else:
-        mes = mes[1:]
-        mes = mes[:-1] + '0'
-        while '0000000000000000' in mes:
-            mes = mes.rstrip('0')
-            mes = mes[:-1] + '0'
+    return message
 
-    return mes
+
 def main():
     if bool(int(input("encoding - press [1]\ndecoding - press [0]\n"))):
         if bool(int(input("Message - text?\n[1] - yes\n[0] - no\n"))):
@@ -237,15 +235,33 @@ def main():
     else:
         name_pic = str(input('Input image name\n'))
         alph = str(input('Input alph or press [1] to use russian alph\n'))
+        mes = deshifr(name_pic)
+
+        mes = mes.rstrip('0')
+        if mes[0] == '0':
+            mes = mes[1:]
+            while '0000000000000000' in mes:
+                mes = mes[:-1] + '0'
+                mes = mes.rstrip('0')
+
+        else:
+            mes = mes[1:]
+            mes = mes[:-1] + '0'
+            while '0000000000000000' in mes:
+                mes = mes.rstrip('0')
+                mes = mes[:-1] + '0'
+
         if alph == '1':
             text = bytes_to_string(deshifr(name_pic))
         else:
             text = bytes_to_string(deshifr(name_pic), alph)
+
         print('Decoded message', text)
         if bool(int(input('Write in file?\n[1] - yes\n[0] - no\n'))):
             file = open(f"{name_pic[:-4]}.txt", 'w')
             file.write(text)
             file.close()
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
